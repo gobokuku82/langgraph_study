@@ -169,7 +169,7 @@ print("=" * 60)
 print("4. String Concatenation Reducer - 문자열 연결")
 print("=" * 60)
 
-def concat_strings_node(current: str, new: str) -> str:
+def concat_strings(current: str, new: str) -> str:
     """문자열을 연결 (구분자 포함)"""
     if new is None:
         return current
@@ -181,19 +181,19 @@ class ConcatState(TypedDict):
     journey: Annotated[str, concat_strings]  # 여정 기록
     current_location: str
 
-def node1_concat_node(state: ConcatState) -> ConcatState:
+def node1_concat(state: ConcatState) -> ConcatState:
     return {
         "journey": "서울",
         "current_location": "서울"
     }
 
-def node2_concat_node(state: ConcatState) -> ConcatState:
+def node2_concat(state: ConcatState) -> ConcatState:
     return {
         "journey": "부산",
         "current_location": "부산"
     }
 
-def node3_concat_node(state: ConcatState) -> ConcatState:
+def node3_concat(state: ConcatState) -> ConcatState:
     return {
         "journey": "제주",
         "current_location": "제주"
@@ -201,9 +201,9 @@ def node3_concat_node(state: ConcatState) -> ConcatState:
 
 # Graph 구성
 workflow_concat = StateGraph(ConcatState)
-workflow_concat.add_node("node1", node1_concat_node)
-workflow_concat.add_node("node2", node2_concat_node)
-workflow_concat.add_node("node3", node3_concat_node)
+workflow_concat.add_node("node1", node1_concat)
+workflow_concat.add_node("node2", node2_concat)
+workflow_concat.add_node("node3", node3_concat)
 workflow_concat.add_edge(START, "node1")
 workflow_concat.add_edge("node1", "node2")
 workflow_concat.add_edge("node2", "node3")
