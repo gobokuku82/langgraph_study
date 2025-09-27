@@ -11,22 +11,13 @@ class State(TypedDict):
 
 # Node 함수들 - 실행 과정을 출력
 def process_node(state: State) -> State:
-    print(f"\n🔄 [Process Node 실행]")
-    print(f"  📥 받은 State:")
-    print(f"     - input: '{state['input']}'")
-    print(f"     - output: '{state['output']}'")
-    print(f"     - step: {state['step']}")
-    
+
     new_state = {
         "output": "처리 완료",
         "step": state['step'] + 1,
         "history": [f"Step {state['step']+1}: Process 노드에서 '{state['input']}' 처리"]
     }
-    
-    print(f"  📤 반환 State:")
-    print(f"     - output: '{new_state['output']}'")
-    print(f"     - step: {new_state['step']}")
-    
+        
     return new_state
 
 def validate_node(state: State) -> State:

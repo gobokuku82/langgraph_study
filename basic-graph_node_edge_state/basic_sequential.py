@@ -26,7 +26,7 @@ workflow.add_node("validate", validate_node)
 workflow.add_node("format", format_node)
 
 # 5. Edge 정의 (순차 실행 - Sequential)
-workflow.add_edge(START, "process")
+workflow.add_edge(START, "process") # workflow.set_entry_point("process") 
 workflow.add_edge("process", "validate")    # 직렬 연결
 workflow.add_edge("validate", "format")     # 직렬 연결
 workflow.add_edge("format", END)
