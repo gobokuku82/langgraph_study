@@ -1,6 +1,5 @@
 from langgraph.graph import StateGraph, START, END
-from langgraph.runtime import Runtime
-from langchain_core.runnables import RunnableConfig
+from langgraph.managed import Context
 from typing import TypedDict, Annotated
 from operator import add
 from dataclasses import dataclass
@@ -53,14 +52,14 @@ print("=" * 60)
 class ConfigState(TypedDict):
     result: str
 
-def node_with_config(state: ConfigState, config: RunnableConfig) -> ConfigState:
+def node_with_config(state: ConfigState, config: dict) -> ConfigState:
     model = config.get("configurable", {}).get("model", "기본모델")
     temp = config.get("configurable", {}).get("temperature", 0.5)
 
     print(f"  설정: model={model}, temperature={temp}")
 
     return {
-        "result": f"모델={model}, 온도={temp}"
+        "result": f"모델={model}, 유연성={temp}"
     }
 
 workflow2 = StateGraph(ConfigState)
@@ -96,9 +95,10 @@ class AppContext:
 class ContextState(TypedDict):
     messages: Annotated[list, add]
 
-def node_with_context(state: ContextState, runtime: Runtime[AppContext]) -> ContextState:
-    user = runtime.context.user_name
-    key = runtime.context.api_key
+def node_with_context(state: ContextState) -> ContextState:
+    ctx = Context()
+    user = ctx.get("user_name", "손님")
+    key = ctx.get("api_key", "없음")
 
     print(f"  Context: user={user}, api_key={key}")
 
@@ -115,7 +115,10 @@ app3 = workflow3.compile()
 
 result = app3.invoke(
     {"messages": []},
-    context=AppContext(user_name="영희", api_key="sk-12345")
+    context={
+        "user_name": "영희",
+        "api_key": "sk-12345"
+    }
 )
 
 print(f"최종 결과: {result['messages']}")
@@ -134,8 +137,9 @@ class CombinedState(TypedDict):
     user_id: int
     query_results: Annotated[list, add]
 
-def fetch_user(state: CombinedState, runtime: Runtime[DBContext]) -> CombinedState:
-    db = runtime.context.db_name
+def fetch_user(state: CombinedState) -> CombinedState:
+    ctx = Context()
+    db = ctx.get("db_name", "unknown")
     user_id = state["user_id"]
 
     print(f"  [{db}] User {user_id} 조회 중...")
@@ -144,8 +148,9 @@ def fetch_user(state: CombinedState, runtime: Runtime[DBContext]) -> CombinedSta
         "query_results": [f"User {user_id} found in {db}"]
     }
 
-def fetch_orders(state: CombinedState, runtime: Runtime[DBContext]) -> CombinedState:
-    db = runtime.context.db_name
+def fetch_orders(state: CombinedState) -> CombinedState:
+    ctx = Context()
+    db = ctx.get("db_name", "unknown")
     user_id = state["user_id"]
 
     print(f"  [{db}] User {user_id}의 주문 조회 중...")
@@ -165,7 +170,7 @@ app4 = workflow4.compile()
 
 result = app4.invoke(
     {"user_id": 42, "query_results": []},
-    context=DBContext(db_name="production_db")
+    context={"db_name": "production_db"}
 )
 
 print(f"\n최종 결과:")
@@ -186,7 +191,9 @@ class FullState(TypedDict):
     input_text: str
     output: str
 
-def process_node(state: FullState, config: RunnableConfig, runtime: Runtime[FullContext]) -> FullState:
+def process_node(state: FullState, config: dict) -> FullState:
+    ctx = Context()
+
     # State에서 읽기
     input_text = state["input_text"]
 
@@ -194,7 +201,7 @@ def process_node(state: FullState, config: RunnableConfig, runtime: Runtime[Full
     mode = config.get("configurable", {}).get("mode", "normal")
 
     # Context에서 읽기
-    endpoint = runtime.context.api_endpoint
+    endpoint = ctx.get("api_endpoint", "none")
 
     print(f"  State: input='{input_text}'")
     print(f"  Config: mode={mode}")
@@ -214,7 +221,7 @@ app5 = workflow5.compile()
 result = app5.invoke(
     {"input_text": "안녕하세요", "output": ""},
     config={"configurable": {"mode": "debug"}},
-    context=FullContext(api_endpoint="https://api.prod.com")
+    context={"api_endpoint": "https://api.prod.com"}
 )
 
 print(f"\n최종 결과: {result['output']}")
