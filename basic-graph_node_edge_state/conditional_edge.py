@@ -143,8 +143,8 @@ if __name__ == "__main__":
 
 """
 path_map = {
-        "proceed": "process_step", # 'proceed' 키는 'process_step' 노드로 다시 돌아감 (루프)
-        "stop": END                # 'stop' 키는 종료(END)로
+        "proceed": "process_step", 
+        "stop": END                
     }
 
     graph.add_conditional_edges(

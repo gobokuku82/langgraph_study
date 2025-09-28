@@ -8,6 +8,8 @@ class State(TypedDict):
     output: str
     step: Annotated[int, add]  # 각 노드의 반환값을 더함
 
+# state_name = Annotated[타입,리듀서]
+
 # Node 함수들 - step을 1씩 반환하여 누적
 def process_node(state: State) -> State:
     print(f"\n🔄 [Process Node 실행]")

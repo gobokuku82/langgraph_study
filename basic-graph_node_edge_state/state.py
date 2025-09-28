@@ -19,6 +19,8 @@ def format_node(state: State) -> State:
 
 # 3. Graph 생성
 workflow = StateGraph(State)
+# 내가하고싶은 그래프이름 = StateGraph(사용할 state이름)
+
 
 # 4. Node 추가
 workflow.add_node("process", process_node)
