@@ -1,123 +1,142 @@
 # 필요한 라이브러리를 가져옵니다.
-from typing import TypedDict, Optional, Dict, Any
+from typing import TypedDict, Annotated, Sequence, Dict, Any
+import operator
 from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolExecutor
+from langchain_core.tools import tool
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 
-# --- 1. State 재정의 (Tool Calling을 위해) ---
-# Agent가 생성한 'Tool Call' 정보를 저장할 공간을 추가합니다.
-class ToolCallingState(TypedDict):
-    raw_input: str              # 사용자의 원본 입력
-    tool_call: Optional[Dict[str, Any]] # LLM이 결정한 Tool 호출 정보
-    result: str                 # 최종 실행 결과
+# --- 1. Tool 정의 ---
+# @tool 데코레이터를 사용하여 LLM이 이해할 수 있는 함수(Tool)를 정의합니다.
+# 함수의 설명(docstring)은 LLM이 어떤 Tool을 선택할지 결정하는 중요한 근거가 됩니다.
 
-# --- 2. "Tool" 함수들 정의 ---
-# 기존의 노드 함수들을 이제 'Tool'이라고 부릅니다.
-# State에서 직접 값을 읽는 대신, 인자를 받아 처리하도록 변경할 수도 있지만,
-# 여기서는 State에 저장된 tool_call의 arguments를 사용합니다.
-
-def evaluate_korean(state: ToolCallingState) -> dict:
-    """'국어' 과목의 점수를 평가하는 'Tool'"""
+@tool
+def evaluate_korean(score: int) -> str:
+    """'국어' 과목의 점수를 평가할 때 사용합니다. 'score' 인자가 반드시 필요합니다."""
     print("🛠️  Tool 실행: [evaluate_korean]")
-    # state에 저장된 tool_call 정보에서 점수를 가져옵니다.
-    score = state['tool_call']['arguments']['score']
-
     if score >= 80:
-        return {"result": "국어 과목 통과입니다! 훌륭해요."}
+        return "국어 과목 통과입니다! 훌륭해요."
     else:
-        return {"result": "국어 과목은 재시험이 필요합니다."}
+        return "국어 과목은 재시험이 필요합니다."
 
-def evaluate_math(state: ToolCallingState) -> dict:
-    """'수학' 과목의 점수를 평가하는 'Tool'"""
+@tool
+def evaluate_math(score: int) -> str:
+    """'수학' 과목의 점수를 평가할 때 사용합니다. 'score' 인자가 반드시 필요합니다."""
     print("🛠️  Tool 실행: [evaluate_math]")
-    score = state['tool_call']['arguments']['score']
-    
     if score >= 50:
-        return {"result": "수학 과목 통과입니다! 잘했습니다."}
+        return "수학 과목 통과입니다! 잘했습니다."
     else:
-        return {"result": "수학 과목은 보충 학습이 필요합니다."}
+        return "수학 과목은 보충 학습이 필요합니다."
+
+# --- 2. State 및 Tool Executor 정의 ---
+# Agent의 상태를 정의합니다. 대화 기록(messages)을 통해 상태를 관리합니다.
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], operator.add]
+
+# 정의된 Tool들을 실행할 실행기를 생성합니다.
+tools = [evaluate_korean, evaluate_math]
+tool_executor = ToolExecutor(tools)
 
 # --- 3. Agent 및 라우터 함수 정의 ---
 
-def mock_llm_agent_node(state: ToolCallingState) -> dict:
+def agent_node(state: AgentState) -> dict:
     """
-    LLM의 역할을 흉내 내는 노드.
-    사용자 입력을 분석하여 어떤 Tool을 호출할지 결정합니다.
+    사용자 입력을 바탕으로 시스템 프롬프트에 따라 적절한 Tool을 결정하는 Agent 노드.
     """
-    print("🤖 1. Agent 노드 실행: Tool 호출을 결정합니다.")
-    raw_input = state['raw_input']
+    
+    SYSTEM_PROMPT = """
+    You are an assistant that evaluates student scores. Based on the user's input, 
+    you must select the correct tool ('evaluate_korean' or 'evaluate_math') 
+    to evaluate the score for the given subject.
+    """
+    
+    # 당신은 학생들의 점수를 평가하는 어시스턴트입니다. 
+    # 사용자의 입력을 바탕으로, 주어진 과목의 점수를 평가하기 위해 올바른 도구
+    # ('evaluate_korean' 또는 'evaluate_math')를 반드시 선택해야 합니다.
+
+    print("🤖 1. Agent: 사용자 입력을 분석하여 필요한 Tool을 결정합니다.")
+    last_message = state['messages'][-1]
+    raw_input = last_message.content
     
     try:
         parts = raw_input.split()
         subject = parts[0]
         score = int(parts[1])
 
-        tool_call = None
+        tool_to_call = None
         if subject == "국어":
-            # 국어 Tool을 호출하라고 결정
-            tool_call = {
-                "tool_name": "evaluate_korean",
-                "arguments": {"score": score}
-            }
-            print(f"   - 결정: '{tool_call['tool_name']}' Tool 호출 필요")
+            # 시스템 프롬프트와 Tool 설명을 바탕으로 'evaluate_korean'을 선택했다고 가정
+            print(f"   - 분석: 입력된 과목 '{subject}'는 'evaluate_korean' Tool의 설명과 일치합니다.")
+            tool_to_call = ToolMessage(
+                tool_call_id="1", 
+                name="evaluate_korean", 
+                content="", 
+                additional_kwargs={"arguments": {"score": score}}
+            )
         elif subject == "수학":
-            # 수학 Tool을 호출하라고 결정
-            tool_call = {
-                "tool_name": "evaluate_math",
-                "arguments": {"score": score}
-            }
-            print(f"   - 결정: '{tool_call['tool_name']}' Tool 호출 필요")
-        else:
-            # 지원하지 않는 과목일 경우 Tool을 호출하지 않고 바로 결과 반환
-            return {"result": f"'{subject}' 과목은 지원하지 않습니다.", "tool_call": None}
+            # 시스템 프롬프트와 Tool 설명을 바탕으로 'evaluate_math'를 선택했다고 가정
+            print(f"   - 분석: 입력된 과목 '{subject}'는 'evaluate_math' Tool의 설명과 일치합니다.")
+            tool_to_call = ToolMessage(
+                tool_call_id="1", 
+                name="evaluate_math", 
+                content="", 
+                additional_kwargs={"arguments": {"score": score}}
+            )
         
-        # 결정된 tool_call 정보를 State에 업데이트
-        return {"tool_call": tool_call}
+        if tool_to_call:
+            # Tool 호출이 필요하다고 판단되면 AIMessage에 tool_calls 정보를 담아 반환
+            return {"messages": [AIMessage(content="", tool_calls=[tool_to_call])]}
+        else:
+            # 적절한 Tool이 없다고 판단되면 일반 메시지 반환
+            return {"messages": [AIMessage(content=f"'{subject}' 과목은 지원하지 않습니다.")]}
 
     except (IndexError, ValueError):
-        # 입력 형식 오류일 경우 Tool을 호출하지 않고 바로 결과 반환
-        return {"result": "입력 형식 오류입니다. '과목 점수' 형태로 입력해주세요.", "tool_call": None}
+        # 입력 형식 오류일 경우 일반 메시지 반환
+        return {"messages": [AIMessage(content="입력 형식 오류입니다. '과목 점수' 형태로 입력해주세요.")]}
 
 
-def tool_router(state: ToolCallingState) -> str:
-    """Agent가 Tool 호출을 결정했는지 여부에 따라 경로를 분기합니다."""
-    print("📌 2. 라우터 실행: Tool 호출 여부를 확인합니다.")
+def tool_executor_node(state: AgentState) -> dict:
+    """Agent가 호출하기로 결정한 Tool을 실제로 실행하는 노드"""
+    print("⚙️ 3. Tool 실행 노드 실행!")
+    last_message = state['messages'][-1]
+    tool_call = last_message.tool_calls[0]
     
-    if state.get("tool_call"):
-        # 호출할 Tool이 있으면, 해당 Tool의 이름(경로)을 반환
-        print(f"   - 경로 결정: '{state['tool_call']['tool_name']}' Tool 실행 경로로 이동")
-        return state['tool_call']['tool_name']
+    # ToolExecutor를 사용하여 이름에 맞는 Tool을 실행
+    output = tool_executor.invoke(tool_call)
+    
+    # Tool 실행 결과를 ToolMessage 형태로 반환
+    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call.id)]}
+
+
+def tool_router(state: AgentState) -> str:
+    """Agent의 결정에 따라 Tool을 실행할지, 종료할지 경로를 분기합니다."""
+    print("📌 2. 라우터 실행: Tool 호출 여부를 확인합니다.")
+    last_message = state['messages'][-1]
+    if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+        # 호출할 Tool이 있으면 'execute_tool' 경로로 이동
+        return "execute_tool"
     else:
-        # 호출할 Tool이 없으면(Agent가 직접 답변을 생성한 경우), 바로 종료
-        print("   - 경로 결정: Tool 호출 없음, 그래프 종료")
+        # 호출할 Tool이 없으면 바로 종료
         return "__end__"
 
 # --- 4. 그래프 구성 ---
-workflow = StateGraph(ToolCallingState)
+workflow = StateGraph(AgentState)
 
-# 1단계: 노드들을 그래프에 추가합니다.
-workflow.add_node("agent", mock_llm_agent_node)
-workflow.add_node("korean_tool", evaluate_korean)
-workflow.add_node("math_tool", evaluate_math)
+workflow.add_node("agent", agent_node)
+workflow.add_node("execute_tool", tool_executor_node)
 
-# 2단계: 그래프의 시작점을 'agent'로 설정합니다. (가장 큰 변화)
 workflow.set_entry_point("agent")
 
-# 3단계: 조건부 엣지를 추가합니다.
-# 'agent' 노드가 끝난 후, 'tool_router' 함수의 결정에 따라 다음 노드로 분기합니다.
 workflow.add_conditional_edges(
     "agent",
     tool_router,
     {
-        "evaluate_korean": "korean_tool", # router가 "evaluate_korean"을 반환하면 -> "korean_tool" 노드로
-        "evaluate_math": "math_tool",     # router가 "evaluate_math"을 반환하면 -> "math_tool" 노드로
+        "execute_tool": "execute_tool",
         "__end__": END
     }
 )
+workflow.add_edge("execute_tool", END)
 
-# 4단계: Tool 실행이 끝난 노드들을 종료(END) 지점에 연결합니다.
-workflow.add_edge("korean_tool", END)
-workflow.add_edge("math_tool", END)
-
-# 5단계: 그래프를 실행 가능한 앱으로 컴파일합니다.
 app = workflow.compile()
 
 # --- 5. 터미널에서 입력받아 실행 ---
@@ -126,8 +145,13 @@ while True:
     if user_input.lower() == 'exit':
         break
 
-    # raw_input을 State에 담아 그래프를 실행합니다.
-    final_state = app.invoke({"raw_input": user_input})
+    # 사용자 입력을 HumanMessage에 담아 그래프를 실행합니다.
+    initial_state = {"messages": [HumanMessage(content=user_input)]}
+    final_state = app.invoke(initial_state)
     
-    # 최종 결과를 출력합니다.
-    print(f"✨ 최종 결과: {final_state['result']}\n")
+    # 최종 결과는 마지막 메시지에 담겨 있습니다.
+    final_message = final_state['messages'][-1]
+    
+    # ToolMessage의 content 또는 AIMessage의 content를 최종 결과로 사용합니다.
+    print(f"✨ 최종 결과: {final_message.content}\n")
+
